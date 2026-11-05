@@ -1,0 +1,11 @@
+{
+  "name": "finance-statement",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Offline, in-browser bank statement categorizer with receipt matching, trip detection and Excel export.",
+  "scripts": {
+    "test": "node tests/e2e.test.js",
+    "samples": "python3 scripts/make_samples.py"
+  },
+  "license": "UNLICENSED"
+}

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Privacy: this page may only load its own local files. connect-src 'none'
+     blocks every network request (fetch/XHR/WebSocket/beacon), so statement
+     data cannot be sent anywhere even by accident. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data: blob:; font-src 'self' file:; connect-src 'none'; worker-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Statement Categorizer</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <h1>Statement Categorizer</h1>
+    <span class="privacy" title="All processing happens in this browser tab. The page is blocked from making any network connections.">🔒 Offline · your files never leave this computer</span>
+  </div>
+  <div class="actions">
+    <button id="btn-export" class="primary">⬇ Export Excel</button>
+    <button id="btn-backup">Backup</button>
+    <label class="button">Restore<input type="file" id="restore-file" accept=".json,application/json" hidden></label>
+    <button id="btn-clear" class="danger">Clear all data</button>
+  </div>
+</header>
+
+<section class="filters">
+  <label>Account <select id="f-account"></select></label>
+  <label>Month <select id="f-month"></select></label>
+  <span id="f-info" class="muted"></span>
+</section>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="import" class="active">Import</button>
+  <button data-tab="accounts">Accounts</button>
+  <button data-tab="summary">Summary</button>
+  <button data-tab="categories">Categories</button>
+  <button data-tab="transactions">Transactions</button>
+  <button data-tab="trips">Trips</button>
+  <button data-tab="receipts">Receipts</button>
+  <button data-tab="settings">Rules &amp; Settings</button>
+</nav>
+
+<main id="view"></main>
+<div id="toast" class="toast" hidden></div>
+
+<script src="vendor/pdf.min.js"></script>
+<!-- Loading the worker as a plain script makes pdf.js run in this page instead
+     of a separate worker, which is what lets it work from file:// -->
+<script src="vendor/pdf.worker.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="js/util.js"></script>
+<script src="js/categories.js"></script>
+<script src="js/statement.js"></script>
+<script src="js/pdftext.js"></script>
+<script src="js/receipts.js"></script>
+<script src="js/trips.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/store.js"></script>
+<script src="js/export.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
