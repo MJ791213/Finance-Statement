@@ -6,13 +6,14 @@
   const esc = FS.escapeHtml;
   const money = FS.fmtMoney;
 
-  let state = FS.Store.load();
+  let state = FS.Store.emptyState();
+  let session = null; // { user: {id, email, displayName}, backend }
   const ui = { tab: 'import', account: '', month: '', catTab: null, search: '', txCat: '', importLog: [] };
 
   // ----------------------------------------------------------- state helpers
   function commit(msg) {
     FS.Engine.recompute(state);
-    if (!FS.Store.save(state)) toast('Warning: could not save to browser storage (storage full?). Use Backup.');
+    FS.Store.save(state);
     render();
     if (msg) toast(msg);
   }
@@ -144,7 +145,7 @@
     </div>
     <div class="panel"><h2>Import log</h2>
       ${ui.importLog.length ? `<ul class="log">${ui.importLog.map((l) => `<li class="${l.kind}">${l.kind === 'err' ? '⚠' : '✓'} ${esc(l.msg)}</li>`).join('')}</ul>` : '<p class="muted">Nothing imported in this session yet.</p>'}
-      <p class="muted small">Workspace: ${state.statements.length} statement(s), ${state.transactions.length} transactions, ${state.receipts.length} receipt(s). Saved only in this browser on this computer.</p>
+      <p class="muted small">Workspace: ${state.statements.length} statement(s), ${state.transactions.length} transactions, ${state.receipts.length} receipt(s). Saved to your account, encrypted with your password.</p>
     </div>`;
   }
 
@@ -323,7 +324,19 @@
     const disabled = new Set(state.disabledBuiltins || []);
     const q = (ui.ruleSearch || '').toLowerCase();
     const shown = builtin.filter((r) => !q || r.pattern.includes(q) || r.category.toLowerCase().includes(q)).slice(0, 300);
-    return `<div class="grid2">
+    const u = session ? session.user : { displayName: '', email: '' };
+    return `<div class="panel"><h2>My account</h2>
+        <div class="grid2">
+          <div><p class="small muted">Signed in as <strong>${esc(u.email)}</strong>. Only this account can see this workspace.</p>
+            <div class="row"><label>Display name <input id="acct-name" value="${esc(u.displayName)}" maxlength="40" size="20"></label>
+              <button data-act="save-name">Save name</button></div></div>
+          <div><div class="row"><input type="password" id="pw-current" placeholder="Current password" autocomplete="current-password">
+              <input type="password" id="pw-new" placeholder="New password (min 8)" autocomplete="new-password">
+              <input type="password" id="pw-new2" placeholder="Repeat new password" autocomplete="new-password">
+              <button data-act="change-pw">Change password</button></div>
+            <p class="small muted">Your workspace is re-encrypted with the new password. There is no password reset: if you forget it, the saved data cannot be recovered. Keep a Backup.</p></div>
+        </div></div>
+      <div class="grid2">
       <div class="panel"><h2>Categories</h2>
         <table><thead><tr><th>Name</th><th>Color</th><th title="Not counted as spending">Not spending</th><th></th></tr></thead><tbody>
         ${state.categories.map((c, i) => `<tr data-cat-idx="${i}"><td><input data-field="name" value="${esc(c.name)}" size="22"></td><td><input type="color" data-field="color" value="${c.color}"></td>
@@ -459,6 +472,10 @@
     } else if (act === 'del-rule') {
       state.rules.splice(+btn.closest('[data-rule-idx]').dataset.ruleIdx, 1);
       commit('Rule deleted');
+    } else if (act === 'save-name') {
+      saveDisplayName($('#acct-name').value.trim());
+    } else if (act === 'change-pw') {
+      changePassword($('#pw-current').value, $('#pw-new').value, $('#pw-new2').value);
     }
   }
 
@@ -582,10 +599,91 @@
     try {
       const obj = JSON.parse(await file.text());
       if (!obj || !Array.isArray(obj.transactions)) throw new Error('not a workspace backup');
-      if (!confirm('Replace everything in this browser with the backup?')) return;
+      if (!confirm('Replace everything in your account with the backup?')) return;
       state = FS.Store.normalize(obj);
       commit('Backup restored');
     } catch (e) { toast('Restore failed: ' + e.message); }
+  }
+
+  // ----------------------------------------------------------- account
+  function showUser() {
+    const u = session.user;
+    $('#user-name').textContent = '👤 ' + u.displayName;
+    $('#user-chip').title = u.email;
+    document.title = `Statement Categorizer · ${u.displayName}`;
+  }
+
+  async function saveDisplayName(name) {
+    if (!name) { toast('Enter a display name'); return; }
+    try {
+      session.user = await session.backend.updateDisplayName(name);
+      showUser(); render(); toast('Display name saved');
+    } catch (e) { toast('Could not save name: ' + e.message); }
+  }
+
+  async function changePassword(current, next, next2) {
+    if (!current || !next) { toast('Fill in your current and new password'); return; }
+    if (next.length < 8) { toast('New password must be at least 8 characters'); return; }
+    if (next !== next2) { toast('The new passwords do not match'); return; }
+    try {
+      await session.backend.signIn(session.user.email, current); // proves the current password
+    } catch (e) { toast('Current password is wrong'); return; }
+    let old;
+    try {
+      old = await FS.Store.rekey(next, state);
+      await session.backend.updatePassword(next);
+    } catch (e) {
+      if (old) { FS.Store.restoreKey(old); FS.Store.save(state); }
+      toast('Password not changed: ' + e.message); return;
+    }
+    ['#pw-current', '#pw-new', '#pw-new2'].forEach((id) => { $(id).value = ''; });
+    toast('Password changed and workspace re-encrypted');
+  }
+
+  const STATUS_TEXT = { idle: '', pending: 'Unsaved changes…', saving: 'Saving…', saved: 'Saved ✓', error: 'Save failed — retry' };
+  function showSaveStatus(st, detail) {
+    const el = $('#save-status');
+    el.textContent = STATUS_TEXT[st] || '';
+    el.className = 'save-status ' + st;
+    el.title = st === 'error' ? `${detail || ''} — click to try again` : st === 'saved' && detail ? `Last saved ${new Date(detail).toLocaleString()}` : '';
+  }
+
+  async function logout() {
+    if (FS.Store.hasUnsaved()) {
+      try { await FS.Store.flush(); } catch (e) {
+        if (!confirm('Your latest changes could not be saved. Log out anyway and lose them?')) return;
+      }
+    }
+    try { await session.backend.signOut(); } catch (e) { console.error(e); }
+    stop();
+    if (FS.Auth) FS.Auth.show();
+  }
+
+  /* Called by auth.js once the user is signed in and the workspace is unlocked. */
+  function start(sess, loaded) {
+    session = sess;
+    state = loaded;
+    ui.importLog = []; ui.account = ''; ui.month = ''; ui.search = ''; ui.txCat = ''; ui.catTab = null;
+    ui.tab = state.transactions.length ? 'summary' : 'import';
+    $('#auth').hidden = true;
+    $('#app').hidden = false;
+    $('#app-actions').hidden = false;
+    showUser();
+    FS.Engine.recompute(state);
+    render();
+  }
+
+  /* Wipes everything readable from the page (log out). */
+  function stop() {
+    FS.Store.lock();
+    session = null;
+    state = FS.Store.emptyState();
+    ui.importLog = [];
+    $('#view').innerHTML = '';
+    $('#app').hidden = true;
+    $('#app-actions').hidden = true;
+    $('#user-name').textContent = '';
+    document.title = 'Statement Categorizer';
   }
 
   function init() {
@@ -593,6 +691,10 @@
     document.addEventListener('change', onChange);
     document.addEventListener('input', onInput);
     setupDrop();
+    FS.Store.onStatus(showSaveStatus);
+    $('#save-status').addEventListener('click', () => { if (FS.Store.status === 'error') FS.Store.save(state); });
+    $('#btn-logout').addEventListener('click', logout);
+    window.addEventListener('beforeunload', (e) => { if (session && FS.Store.hasUnsaved()) { e.preventDefault(); e.returnValue = ''; } });
     $('#btn-export').addEventListener('click', () => {
       const txs = filteredTx();
       if (!txs.length) { toast('Nothing to export yet'); return; }
@@ -600,18 +702,17 @@
       toast(`Saved ${name}`);
     });
     $('#btn-backup').addEventListener('click', () => download(`statement-categorizer-backup-${new Date().toISOString().slice(0, 10)}.json`, FS.Store.serialize(state), 'application/json'));
-    $('#btn-clear').addEventListener('click', () => {
-      if (!confirm('Delete ALL statements, receipts, trips and rules from this browser? (Export a backup first if you want to keep them.)')) return;
-      FS.Store.clear();
+    $('#btn-clear').addEventListener('click', async () => {
+      if (!confirm('Delete ALL statements, receipts, trips and rules from your account? (Export a backup first if you want to keep them.)')) return;
+      try { await FS.Store.clear(); } catch (e) { toast('Could not delete online data: ' + e.message); return; }
       state = FS.Store.emptyState();
       ui.importLog = [];
-      commit('All data cleared');
+      FS.Engine.recompute(state);
+      render();
+      toast('All data cleared');
     });
-    if (state.transactions.length) ui.tab = 'summary';
-    FS.Engine.recompute(state);
-    render();
   }
 
-  FS.App = { get state() { return state; }, ui, render, importStatements, importReceipts };
+  FS.App = { get state() { return state; }, get user() { return session && session.user; }, ui, render, importStatements, importReceipts, start, stop, logout, toast };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })(window);

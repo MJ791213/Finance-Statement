@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- Privacy: this page may only load its own local files. connect-src 'none'
-     blocks every network request (fetch/XHR/WebSocket/beacon), so statement
-     data cannot be sent anywhere even by accident. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data: blob:; font-src 'self' file:; connect-src 'none'; worker-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'">
+<!-- Privacy: scripts, styles and fonts may only come from this site's own
+     files. The only network destination allowed is your Supabase project
+     (accounts + the encrypted workspace). Statement data is encrypted in this
+     tab before it is uploaded. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data: blob:; font-src 'self' file:; connect-src https://*.supabase.co; worker-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Statement Categorizer</title>
@@ -15,15 +16,21 @@
 <header class="topbar">
   <div class="brand">
     <h1>Statement Categorizer</h1>
-    <span class="privacy" title="All processing happens in this browser tab. The page is blocked from making any network connections.">🔒 Offline · your files never leave this computer</span>
+    <span class="privacy" title="Statements are read in this browser tab. Your workspace is encrypted with your password before it is saved online, and only your account can load it.">🔒 Encrypted before upload · only you can see your data</span>
   </div>
-  <div class="actions">
+  <div class="actions" id="app-actions" hidden>
+    <span id="save-status" class="save-status" title=""></span>
     <button id="btn-export" class="primary">⬇ Export Excel</button>
     <button id="btn-backup">Backup</button>
     <label class="button">Restore<input type="file" id="restore-file" accept=".json,application/json" hidden></label>
     <button id="btn-clear" class="danger">Clear all data</button>
+    <span class="user-chip" id="user-chip"><span id="user-name"></span><button id="btn-logout" class="mini">Log out</button></span>
   </div>
 </header>
+
+<section id="auth" class="auth"></section>
+
+<div id="app" hidden>
 
 <section class="filters">
   <label>Account <select id="f-account"></select></label>
@@ -43,6 +50,7 @@
 </nav>
 
 <main id="view"></main>
+</div>
 <div id="toast" class="toast" hidden></div>
 
 <script src="vendor/pdf.min.js"></script>
@@ -50,6 +58,8 @@
      of a separate worker, which is what lets it work from file:// -->
 <script src="vendor/pdf.worker.min.js"></script>
 <script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/supabase.min.js"></script>
+<script src="js/config.js"></script>
 <script src="js/util.js"></script>
 <script src="js/categories.js"></script>
 <script src="js/statement.js"></script>
@@ -57,8 +67,11 @@
 <script src="js/receipts.js"></script>
 <script src="js/trips.js"></script>
 <script src="js/engine.js"></script>
+<script src="js/crypto.js"></script>
+<script src="js/backend.js"></script>
 <script src="js/store.js"></script>
 <script src="js/export.js"></script>
 <script src="js/app.js"></script>
+<script src="js/auth.js"></script>
 </body>
 </html>
